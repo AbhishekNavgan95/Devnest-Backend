@@ -1,6 +1,9 @@
 const SubSection = require("../models/Subsection");
 const Section = require("../models/Section");
-const { uploadImageTocloudinary } = require("../utils/imageUploader");
+const {
+  uploadImageTocloudinary,
+  deleteAssetFromCloudinary,
+} = require("../utils/imageUploader");
 require("dotenv").config();
 const ffmpeg = require("fluent-ffmpeg");
 const fs = require("fs");
@@ -74,8 +77,6 @@ exports.createSubSection = async (req, res) => {
       publicId: uploadDetils.public_id,
     };
 
-    console.log("saved video data ; ", videoData);
-
     const subSectionDetails = await SubSection.create({
       title: title,
       timeDuration: formattedDuration,
@@ -116,10 +117,11 @@ exports.updateSubSection = async (req, res) => {
       subSectionId,
       title,
       description,
-      isPreviewable = false,
+      // isPreviewable = false,
     } = req.body;
 
     const video = req.files?.video;
+    const isPreviewable = req.body.isPreviewable === "true";
 
     const subSection = await SubSection.findById(subSectionId);
     if (!subSection) {
@@ -134,8 +136,7 @@ exports.updateSubSection = async (req, res) => {
       await deleteAssetFromCloudinary(subSection.video.publicId);
 
       // Save to temp
-      const tempFilePath = path.join(__dirname, "../temp", video.name);
-      await video.mv(tempFilePath);
+      const tempFilePath = video.tempFilePath;
 
       // Calculate new duration
       const durationInSeconds = await new Promise((resolve, reject) => {

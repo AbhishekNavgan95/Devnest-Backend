@@ -22,6 +22,8 @@ const socketConnect = require("./config/socket");
 const { cloudinaryConnect } = require("./config/cloudinary");
 const listenToSocketEvents = require("./controllers/socket");
 const { auth } = require("./middlewares/auth");
+const { streamSignedVideo } = require("./controllers/Course");
+const { streamRoutes } = require("./routes/streamRoutes");
 
 // Initialize Server
 const PORT = process.env.PORT || 4000;
@@ -42,8 +44,8 @@ app.use(cookieParser());
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN || "https://echo-an.netlify.app/",
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
     accessControlAllowOrigin: "*",
     optionSuccessStatus: 200,
@@ -65,7 +67,8 @@ app.use("/api/v1/course", courseRoutes);
 app.use("/api/v1/payment", paymentRoutes);
 app.use("/api/v1/chat", chatRoutes);
 app.use("/api/v1/codespace", codeSpace);
-app.use("/api/v1/generate", streamChatResponse);
+app.use("/api/v1/stream", streamRoutes);
+app.post("/api/v1/generate", streamChatResponse);
 
 app.get("/", (req, res) => {
   res.json({

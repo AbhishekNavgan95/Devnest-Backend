@@ -76,13 +76,14 @@ router.post("/deleteSubSection", auth, isInstructor, deleteSubSection);
 // Get all Registered Courses
 router.get("/showAllCourses", showAllCourses);
 // Get Details for a Specific Courses
-router.post("/getCourseDetails", getCourseDetails);
+router.get("/getCourseDetails/:courseId", getCourseDetails);
 
 // Get Details for a Specific Courses
 router.post("/getFullCourseDetails", auth, getFullCourseDetails);
 
 // Edit Course routes
-router.post("/editCourse", auth, isInstructor, editCourse);
+
+router.post("/editCourse/:id", auth, isInstructor, editCourse);
 
 // make course public
 router.post("/editStatus", auth, isInstructor, makeCoursePublic);
@@ -91,7 +92,7 @@ router.post("/editStatus", auth, isInstructor, makeCoursePublic);
 router.get("/getInstructorCourses", auth, isInstructor, getInstructorCourses);
 
 // Delete a Course
-router.delete("/deleteCourse", auth, isInstructor, deleteCourse);
+router.post("/deleteCourse", auth, isInstructor, deleteCourse);
 
 // get trending courses
 router.get("/getTrendingCourses", getTrendingCourses);
@@ -106,7 +107,7 @@ router.post("/createTopic", auth, isAdmin, createTopic);
 router.post("/updateTopic", auth, isAdmin, updateTopic);
 router.get("/getAllTopics", fetchAllTopics);
 router.get("/getAllCategories", showAllCategories);
-router.post("/getTopicPageDetails", getTopicCoursesAggregated);
+router.get("/getTopicPageDetails/:topicId", getTopicCoursesAggregated);
 // router.get("/getAllCategoryAndCourses",auth, isAdmin, getAllCategoryAndCourses)
 
 // ********************************************************************************************************

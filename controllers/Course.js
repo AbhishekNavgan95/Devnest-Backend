@@ -10,6 +10,14 @@ const SubSection = require("../models/Subsection");
 const CourseProgress = require("../models/CourseProgress");
 const Topic = require("../models/Topic");
 const fs = require("fs");
+const got = require("got");
+const cloudinary = require("cloudinary").v2;
+
+cloudinary.config({
+  cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.API_KEY,
+  api_secret: process.env.API_SECRET,
+});
 
 // create Course
 exports.createCourse = async (req, res) => {
@@ -180,8 +188,9 @@ exports.editCourse = async (req, res) => {
       actualPrice,
       tags,
       topicId,
-      courseId,
     } = req.body;
+    const { id: courseId } = req.params;
+    console.log("course id : ", courseId);
 
     if (!courseId) {
       return res.status(400).json({
@@ -192,11 +201,27 @@ exports.editCourse = async (req, res) => {
 
     // get instructor details for adding in course collection
     const userId = req.user.id;
-    const thumbnail = req.files.thumbnail;
-    const intro = req.files.intro;
+    const thumbnail = req.files?.thumbnail;
+    const intro = req.files?.intro;
+
+    // Parse arrays if received as strings
+    const parsedWhatYouWillLearn = JSON.parse(whatYouWillLearn || "[]");
+    const parsedWhoThisCourseIsFor = JSON.parse(whoThisCourseIsFor || "[]");
+    const parsedRequirements = JSON.parse(requirements || "[]");
+    const parsedWhatsIncluded = JSON.parse(whatsIncluded || "[]");
+    const parsedTags = JSON.parse(tags || "[]");
+    const parsedFaqs = JSON.parse(faqs || "[]");
 
     // get course details
-    const courseDetails = await Course.findById(courseId);
+    const courseDetails = await Course.findById(courseId).populate([
+      {
+        path: "courseContent",
+        populate: {
+          path: "subSection",
+          select: "title timeDuration description isPreviewable video",
+        },
+      },
+    ]);
     if (!courseDetails) {
       return res.status(404).json({
         success: false,
@@ -220,24 +245,10 @@ exports.editCourse = async (req, res) => {
       });
     }
 
-    // validate topic
-    const TopicDetails = await Topic.findById(topicId);
-    if (!TopicDetails) {
-      return res.status(404).json({
-        success: false,
-        message: "Category details not found",
-      });
-    }
-
-    if (!TopicDetails.courses?.includes(courseDetails?._id)) {
-      return res.status(404).json({
-        success: false,
-        message: "Course not found in the topic",
-      });
-    }
-
     // update thumbnail
-    if (thumbnail) {
+    if (thumbnail && typeof thumbnail !== "string") {
+      console.log("➡️➡️➡️➡️ updating thumbnail ");
+
       const deleteResponse = await deleteAssetFromCloudinary(
         courseDetails?.thumbnail?.publicId
       );
@@ -256,7 +267,8 @@ exports.editCourse = async (req, res) => {
     }
 
     // updateIntroVideo
-    if (intro) {
+    if (intro && typeof intro !== "string") {
+      console.log("➡️➡️➡️➡️ updating intro ");
       const deleteResponse = await deleteAssetFromCloudinary(
         courseDetails?.intro?.publicId
       );
@@ -276,7 +288,7 @@ exports.editCourse = async (req, res) => {
 
     if (topicId) {
       const updatedTopic = await Topic.findByIdAndUpdate(
-        topicId,
+        courseDetails?.category,
         {
           $pull: {
             courses: courseDetails._id,
@@ -301,24 +313,26 @@ exports.editCourse = async (req, res) => {
     }
 
     if (title) courseDetails.title = title;
+    if (topicId) courseDetails.category = topicId;
     if (description) courseDetails.description = description;
-    if (whatYouWillLearn) courseDetails.whatYouWillLearn = whatYouWillLearn;
+    if (whatYouWillLearn)
+      courseDetails.whatYouWillLearn = parsedWhatYouWillLearn;
     if (whoThisCourseIsFor)
-      courseDetails.whoThisCourseIsFor = whoThisCourseIsFor;
-    if (requirements) courseDetails.requirements = requirements;
-    if (whatsIncluded) courseDetails.whatsIncluded = whatsIncluded;
+      courseDetails.whoThisCourseIsFor = parsedWhoThisCourseIsFor;
+    if (requirements) courseDetails.requirements = parsedRequirements;
+    if (whatsIncluded) courseDetails.whatsIncluded = parsedWhatsIncluded;
     if (price) courseDetails.price = price;
     if (actualPrice) courseDetails.actualPrice = actualPrice;
-    if (tags) courseDetails.tags = tags;
-    if (faqs) courseDetails.faqs = faqs;
+    if (tags) courseDetails.tags = parsedTags;
+    if (faqs) courseDetails.faqs = parsedFaqs;
 
     await courseDetails.save();
 
-    if (updatedCourse) {
+    if (courseDetails) {
       return res.status(200).json({
         success: true,
         message: "Course Updated Successfully...",
-        updatedCourse,
+        data: courseDetails,
       });
     }
   } catch (e) {
@@ -420,7 +434,7 @@ exports.showAllCourses = async (req, res) => {
 exports.getCourseDetails = async (req, res) => {
   try {
     // get id
-    const { courseId } = req.body;
+    const { courseId } = req.params;
 
     // find course details
     const courseDetails = await Course.findById(courseId)
@@ -429,7 +443,7 @@ exports.getCourseDetails = async (req, res) => {
         select: "firstName lastName email image",
         populate: {
           path: "additionalDetails",
-          select: "about",
+          select: "about niche followers experience",
         },
       })
       .populate({
@@ -443,14 +457,31 @@ exports.getCourseDetails = async (req, res) => {
           select: "firstName image lastName",
         },
       })
+      .populate("studentsEnrolled")
       .populate({
         path: "courseContent",
         populate: {
           path: "subSection",
-          select: "description duraiton title",
+          select: "description timeDuration title isPreviewable video",
         },
       })
+      .lean()
       .exec();
+
+      if(courseDetails?.status !== "Published") {
+        return res.status(400).json({
+          success: false,
+          message: "Course is not published yet",
+        });
+      }
+
+    courseDetails.courseContent?.forEach((section) => {
+      section?.subSection?.forEach((lecture) => {
+        if(!lecture?.isPreviewable) {
+          lecture.video = undefined;
+        }
+      })
+    })
 
     // validation
     if (!courseDetails) {
@@ -538,6 +569,15 @@ exports.getInstructorCourses = async (req, res) => {
 exports.deleteCourse = async (req, res) => {
   try {
     const { courseId } = req.body;
+    console.log("courseId : ", courseId);
+
+    if (!courseId) {
+      return res.status(400).json({
+        success: false,
+        message: "Course ID is required",
+      });
+    }
+
     // Find the course
     const course = await Course.findById(courseId);
     if (!course) {
@@ -768,5 +808,46 @@ exports.getTrendingCourses = async (req, res) => {
       message: "Failed to fetch trending courses",
       error: error.message,
     });
+  }
+};
+
+exports.streamSignedVideo = async (req, res) => {
+  try {
+    const { publicId } = req.params;
+
+    const videoUrl = cloudinary.url("Devnest/" + publicId, {
+      resource_type: "video",
+      secure: true,
+      sign_url: true, // Generates a signed URL
+    });
+
+    // Handle video streaming with range support
+    const range = req.headers.range;
+    if (!range) {
+      return res.status(400).send("Requires Range header");
+    }
+
+    const response = await got(videoUrl, { responseType: "buffer" }); // why I am getting 404 even after correct url?
+    // console.log("response : ", response)
+    const videoBuffer = response.rawBody;
+
+    const videoSize = videoBuffer.length;
+    const CHUNK_SIZE = 10 ** 6;
+    const start = Number(range.replace(/\D/g, ""));
+    const end = Math.min(start + CHUNK_SIZE, videoSize - 1);
+
+    const contentLength = end - start + 1;
+    const headers = {
+      "Content-Range": `bytes ${start}-${end}/${videoSize}`,
+      "Accept-Ranges": "bytes",
+      "Content-Length": contentLength,
+      "Content-Type": "video/mp4",
+    };
+
+    res.writeHead(206, headers);
+    res.end(videoBuffer.slice(start, end + 1));
+  } catch (error) {
+    console.error("Video stream error:", error.message);
+    res.status(500).send("Server error");
   }
 };

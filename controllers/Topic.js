@@ -1,5 +1,7 @@
 const Category = require("../models/Category");
+const Course = require("../models/Course");
 const Topic = require("../models/Topic");
+const mongoose = require("mongoose");
 
 exports.createTopic = async (req, res) => {
   try {
@@ -112,7 +114,7 @@ exports.fetchAllTopics = async (req, res) => {
 
 exports.getTopicCoursesAggregated = async (req, res) => {
   try {
-    const { topicId } = req.body;
+    const { topicId } = req.params;
 
     if (!topicId || !mongoose.Types.ObjectId.isValid(topicId)) {
       return res
@@ -125,7 +127,6 @@ exports.getTopicCoursesAggregated = async (req, res) => {
     const results = await Topic.aggregate([
       { $match: { _id: topicObjectId } },
 
-      // Lookup all courses in this topic
       {
         $lookup: {
           from: "courses",
@@ -146,42 +147,75 @@ exports.getTopicCoursesAggregated = async (req, res) => {
         },
       },
 
-      // Unwind for further operations (like rating)
-      { $unwind: "$allCourses" },
-
-      // Lookup ratingAndReviews
+      // Lookup for instructors
       {
         $lookup: {
-          from: "ratingandreviews",
-          localField: "allCourses.ratingAndReviews",
+          from: "users",
+          localField: "allCourses.instructor",
           foreignField: "_id",
-          as: "allCourses.ratings",
+          as: "instructors",
+        },
+      },
+      // Lookup for categories (topics)
+      {
+        $lookup: {
+          from: "topics",
+          localField: "allCourses.category",
+          foreignField: "_id",
+          as: "categories",
         },
       },
 
-      // Calculate average rating for each course
+      // Replace instructor and category in each course
       {
         $addFields: {
-          "allCourses.avgRating": {
-            $cond: [
-              { $gt: [{ $size: "$allCourses.ratings" }, 0] },
-              { $avg: "$allCourses.ratings.rating" },
-              0,
-            ],
+          allCourses: {
+            $map: {
+              input: "$allCourses",
+              as: "course",
+              in: {
+                $mergeObjects: [
+                  "$$course",
+                  {
+                    instructor: {
+                      $arrayElemAt: [
+                        {
+                          $filter: {
+                            input: "$instructors",
+                            as: "inst",
+                            cond: { $eq: ["$$inst._id", "$$course.instructor"] },
+                          },
+                        },
+                        0,
+                      ],
+                    },
+                    category: {
+                      $arrayElemAt: [
+                        {
+                          $filter: {
+                            input: "$categories",
+                            as: "cat",
+                            cond: { $eq: ["$$cat._id", "$$course.category"] },
+                          },
+                        },
+                        0,
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
           },
         },
       },
 
-      // Group back to Topic level
       {
-        $group: {
-          _id: "$_id",
-          name: { $first: "$name" },
-          allCourses: { $push: "$allCourses" },
+        $project: {
+          instructors: 0,
+          categories: 0,
         },
       },
 
-      // Sort and slice top rated
       {
         $addFields: {
           topRatedCourses: {
@@ -195,25 +229,13 @@ exports.getTopicCoursesAggregated = async (req, res) => {
               6,
             ],
           },
-          recentCourses: {
-            $slice: [
-              {
-                $sortArray: {
-                  input: "$allCourses",
-                  sortBy: { createdAt: -1 },
-                },
-              },
-              6,
-            ],
-          },
         },
       },
 
-      // Get instructors with this topic in niche
       {
         $lookup: {
           from: "users",
-          let: { topicId: "$_id" },
+          let: { topicName: "$name" },
           pipeline: [
             { $match: { accountType: "Instructor" } },
             {
@@ -228,7 +250,7 @@ exports.getTopicCoursesAggregated = async (req, res) => {
             {
               $match: {
                 $expr: {
-                  $in: ["$$topicId", "$profile.niche"],
+                  $in: ["$$topicName", "$profile.niche"],
                 },
               },
             },
@@ -238,7 +260,9 @@ exports.getTopicCoursesAggregated = async (req, res) => {
                 lastName: 1,
                 email: 1,
                 image: 1,
+                courses: 1,
                 "profile.niche": 1,
+                "profile.followers": 1
               },
             },
           ],
@@ -247,10 +271,28 @@ exports.getTopicCoursesAggregated = async (req, res) => {
       },
     ]);
 
+    const responseData = results[0] || {
+      _id: topicObjectId,
+      name: "",
+      allCourses: [],
+      topRatedCourses: [],
+      instructorsWithSameNiche: [],
+    };
+
+    // Always fetch 6 most recent published courses globally with populated instructor and category
+    const globalRecentCourses = await Course.find({ status: "Published" })
+      .sort({ createdAt: -1 })
+      .limit(6)
+      .populate("instructor", "firstName lastName email image")
+      .populate("category", "name")
+      .lean();
+
+    responseData.recentCourses = globalRecentCourses;
+
     return res.status(200).json({
       success: true,
       message: "Aggregated topic data fetched successfully",
-      data: results[0] || {},
+      data: responseData,
     });
   } catch (error) {
     console.error("Error in aggregation:", error);

@@ -177,14 +177,13 @@ exports.signUp = async (req, res) => {
       email,
       image: {
         url: `https://ui-avatars.com/api/?name=${firstName}+${lastName}`,
-        publicId: null,
+        publicId: "",
       },
       // contactNumber,
       password: hashedPassword,
       verificationToken,
       accountType,
       additionalDetails: profileDetails._id,
-      image: `http://api.dicebear.com/5.x/initials/svg?seed=${firstName} ${lastName}`,
     });
 
     const mailResponse = await mailSender(
