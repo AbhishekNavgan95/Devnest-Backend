@@ -8,7 +8,8 @@ const {
 const { default: mongoose } = require("mongoose");
 const crypto = require("crypto");
 const { paymentSuccess } = require("../mail/tamplates/paymentSuccessEmail");
-const CourseProgress = require("../models/CourseProgress")
+const CourseProgress = require("../models/CourseProgress");
+const courseSale = require("../models/courseSale");
 
 const enrollStudent = async (courses, userId, res) => {
   if (!courses || !userId) {
@@ -41,8 +42,8 @@ const enrollStudent = async (courses, userId, res) => {
       const courseProgress = await CourseProgress.create({
         courseId: courseId,
         userId: userId,
-        completedVideos: []
-      })
+        completedVideos: [],
+      });
 
       // add course in the user model
       const enrolledStudent = await User.findByIdAndUpdate(
@@ -50,7 +51,7 @@ const enrollStudent = async (courses, userId, res) => {
         {
           $push: {
             courses: courseId,
-            courseProgress: courseProgress._id
+            courseProgress: courseProgress._id,
           },
         },
         { new: true }
@@ -66,18 +67,18 @@ const enrollStudent = async (courses, userId, res) => {
       // send confimation mail
       const emailResponse = await mailSender(
         enrolledStudent?.email,
-        `Successfully Enrolled in the ${enrolledCourse?.courseTitle}`,
+        `Successfully Enrolled in the ${enrolledCourse?.title}`,
         courseEnrollmentEmail(
-          enrolledCourse?.courseTitle,
+          enrolledCourse?.title,
           enrolledStudent?.firstName + " " + enrolledStudent?.lastName
         )
       );
     } catch (e) {
-      console.log("something went wrong while purchasing the course!!!")
+      console.log("something went wrong while purchasing the course!!!");
       return res.status(500).json({
         success: false,
-        message: e?.message
-      })
+        message: e?.message,
+      });
     }
   }
 };
@@ -119,7 +120,7 @@ exports.capturePayment = async (req, res) => {
           });
         }
 
-        totalAmount += course?.price;
+        totalAmount += course?.actualPrice;
       } catch (e) {
         console.log("something went wrong while validating the course");
         return res.status(500).json({
@@ -144,19 +145,14 @@ exports.capturePayment = async (req, res) => {
         success: true,
         message: paymentRes,
       });
-
     } catch (e) {
-
       console.log(e);
       return res.status(500).json({
         success: false,
         message: "Something went wrong while creating the order " + e?.message,
       });
-
     }
-
   } catch (e) {
-
     console.log(e);
     return res.status(500).json({
       success: false,
@@ -166,15 +162,18 @@ exports.capturePayment = async (req, res) => {
 };
 
 exports.varifyPayment = async (req, res) => {
-  const {razorpay_order_id, razorpay_payment_id, razorpay_signature} = req.body;
-  // const razorPayPaymentId = req.body?.razorPayPaymentId;
-  // const razorPaySignature = req.body?.razorPaySignature;
-
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
+    req.body;
   const courses = req.body?.courses;
   const userId = req?.user?.id;
 
+  // console.log("razorpay_order_id : ", razorpay_order_id);
+  // console.log("razorpay_payment_id : ", razorpay_payment_id);
+  // console.log("razorpay_signature : ", razorpay_signature);
+  // console.log("courses : ", courses);
+
   if (
-    !razorpay_order_id||
+    !razorpay_order_id ||
     !razorpay_payment_id ||
     !razorpay_signature ||
     !courses ||
@@ -197,6 +196,19 @@ exports.varifyPayment = async (req, res) => {
     // enroll student
     await enrollStudent(courses, userId, res);
 
+    // store sales information
+    for (const courseId of courses) {
+      const course = await Course.findById(courseId).populate("instructor");
+
+      await courseSale.create({
+        instructor: course.instructor._id,
+        course: course._id,
+        student: userId,
+        paymentId: razorpay_payment_id,
+        orderId: razorpay_order_id,
+        amount: course.actualPrice * 100, // store in paise
+      });
+    }
     // return res
     return res.status(200).json({
       success: true,
@@ -211,32 +223,55 @@ exports.varifyPayment = async (req, res) => {
 };
 
 exports.sendPaymentSuccessEmail = async (req, res) => {
-
-  const {orderId, paymentId, amount} = req.body;
+  const { orderId, paymentId, amount } = req.body;
 
   const userId = req.user.id;
 
-  if(!orderId || !paymentId || !amount || !userId) {
+  if (!orderId || !paymentId || !amount || !userId) {
     return res.status(400).json({
-      success:false,
-      message: "Please provide all the fields"
-    })
+      success: false,
+      message: "Please provide all the fields",
+    });
   }
-    try {
+  try {
+    const studentData = await User.findById(userId);
 
-      const studentData =  await User.findById(userId);
-
-      await mailSender(
-        studentData?.email,
-        `Payment Successfull`,
-        paymentSuccess(amount/100, paymentId, orderId, studentData?.firstName, studentData?.lastName )
+    await mailSender(
+      studentData?.email,
+      `Payment Successfull`,
+      paymentSuccess(
+        amount / 100,
+        paymentId,
+        orderId,
+        studentData?.firstName,
+        studentData?.lastName
       )
+    );
+  } catch (e) {
+    console.log("error in sending mail : ", e);
+    res.status(500).json({
+      success: false,
+      message: "Something went wrong while sending payment success mail",
+    });
+  }
+};
 
-    } catch(e) {  
-      console.log("error in sending mail : ", e);
-      res.status(500).json({
-        success:false,
-        message: "Something went wrong while sending payment success mail"
-      })
-    }
-}
+exports.getInstructorSales = async (req, res) => {
+  const instructorId = req.user.id;
+
+  try {
+    const sales = await CourseSale.find({ instructor: instructorId })
+      .populate("course")
+      .populate("student", "firstName lastName email");
+
+    res.status(200).json({
+      success: true,
+      sales,
+    });
+  } catch (e) {
+    res.status(500).json({
+      success: false,
+      message: "Could not fetch sales",
+    });
+  }
+};

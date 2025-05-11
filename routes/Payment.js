@@ -6,6 +6,7 @@ const {
   capturePayment,
   varifyPayment,
   sendPaymentSuccessEmail,
+  getInstructorSales,
 } = require("../controllers/Payment");
 const {
   auth,
@@ -22,5 +23,6 @@ router.post(
   isStudent,
   sendPaymentSuccessEmail
 );
+router.get('/getInstructorSales', auth, isInstructor, getInstructorSales)
 
 module.exports = router;

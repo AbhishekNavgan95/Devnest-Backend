@@ -265,9 +265,20 @@ exports.login = async (req, res) => {
     }
 
     // Check if user exists
-    const tempUser = await User.findOne({ email }).populate(
-      "additionalDetails courses"
-    );
+    const tempUser = await User.findOne({ email }).populate([
+      {
+        path: "additionalDetails",
+      },
+      {
+        path: "courses",
+        populate: {
+          path: "category instructor courseContent",
+        },
+      },
+      {
+        path: "courseProgress",
+      },
+    ]);
 
     if (!tempUser) {
       return res.status(401).json({
@@ -297,7 +308,8 @@ exports.login = async (req, res) => {
     if (user?.markedForDeletionAt) {
       return res.status(401).json({
         success: false,
-        message: "Your account has been marked for deletion. contact admin for more info",
+        message:
+          "Your account has been marked for deletion. contact admin for more info",
       });
     }
 
