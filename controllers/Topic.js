@@ -166,7 +166,17 @@ exports.getTopicCoursesAggregated = async (req, res) => {
         },
       },
 
-      // Replace instructor and category in each course
+      // Lookup for ratingAndReviews
+      {
+        $lookup: {
+          from: "ratingandreviews",
+          localField: "allCourses._id",
+          foreignField: "course",
+          as: "ratingAndReviews",
+        },
+      },
+
+      // Replace instructor, category, and attach ratingAndReviews
       {
         $addFields: {
           allCourses: {
@@ -183,7 +193,9 @@ exports.getTopicCoursesAggregated = async (req, res) => {
                           $filter: {
                             input: "$instructors",
                             as: "inst",
-                            cond: { $eq: ["$$inst._id", "$$course.instructor"] },
+                            cond: {
+                              $eq: ["$$inst._id", "$$course.instructor"],
+                            },
                           },
                         },
                         0,
@@ -201,6 +213,13 @@ exports.getTopicCoursesAggregated = async (req, res) => {
                         0,
                       ],
                     },
+                    ratingAndReviews: {
+                      $filter: {
+                        input: "$ratingAndReviews",
+                        as: "review",
+                        cond: { $eq: ["$$review.course", "$$course._id"] },
+                      },
+                    },
                   },
                 ],
               },
@@ -213,6 +232,7 @@ exports.getTopicCoursesAggregated = async (req, res) => {
         $project: {
           instructors: 0,
           categories: 0,
+          ratingAndReviews: 0,
         },
       },
 
@@ -262,7 +282,7 @@ exports.getTopicCoursesAggregated = async (req, res) => {
                 image: 1,
                 courses: 1,
                 "profile.niche": 1,
-                "profile.followers": 1
+                "profile.followers": 1,
               },
             },
           ],
@@ -285,6 +305,7 @@ exports.getTopicCoursesAggregated = async (req, res) => {
       .limit(6)
       .populate("instructor", "firstName lastName email image")
       .populate("category", "name")
+      .populate("ratingAndReviews")
       .lean();
 
     responseData.recentCourses = globalRecentCourses;

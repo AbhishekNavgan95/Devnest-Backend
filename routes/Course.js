@@ -14,6 +14,8 @@ const {
   deleteCourse,
   searchCourse,
   getTrendingCourses,
+  getInstructorDashboardData,
+  getDevnestTrendingCourses,
 } = require("../controllers/Course");
 
 const {
@@ -61,28 +63,35 @@ const {
 
 // Courses can Only be Created by Instructors
 router.post("/createCourse", auth, isInstructor, createCourse);
+
 //Add a Section to a Course
 router.post("/addSection", auth, isInstructor, createSection);
+
 // Update a Section
 router.put("/updateSection", auth, isInstructor, updateSection);
+
 // Delete a Section
 router.post("/deleteSection", auth, isInstructor, deleteSection);
+
 // Add a Sub Section to a Section
 router.post("/addSubSection", auth, isInstructor, createSubSection);
+
 // Edit Sub Section
 router.post("/updateSubSection", auth, isInstructor, updateSubSection);
+
 // Delete Sub Section
 router.post("/deleteSubSection", auth, isInstructor, deleteSubSection);
+
 // Get all Registered Courses
 router.get("/showAllCourses", showAllCourses);
+
 // Get Details for a Specific Courses
 router.get("/getCourseDetails/:courseId", getCourseDetails);
 
 // Get Details for a Specific Courses
-router.post("/getFullCourseDetails", auth, getFullCourseDetails);
+router.get("/getFullCourseDetails/:courseId", auth, getFullCourseDetails);
 
 // Edit Course routes
-
 router.post("/editCourse/:id", auth, isInstructor, editCourse);
 
 // make course public
@@ -97,8 +106,14 @@ router.post("/deleteCourse", auth, isInstructor, deleteCourse);
 // get trending courses
 router.get("/getTrendingCourses", getTrendingCourses);
 
+// get top selling courses
+router.get("/getTopSellingCourses", getDevnestTrendingCourses);
+
 // search course
 router.post("/search", searchCourse);
+
+// get instructor dashboard data
+router.get('/InstructorDashboardData', auth, isInstructor, getInstructorDashboardData)
 
 router.post("/updateCourseProgress", auth, isStudent, updateCourseProgress);
 

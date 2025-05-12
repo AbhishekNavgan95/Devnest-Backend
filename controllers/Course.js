@@ -1,5 +1,7 @@
 const Course = require("../models/Course");
 const Category = require("../models/Category");
+const CourseSale = require("../models/courseSale");
+const RatingAndReview = require("../models/RatingAndReview");
 const User = require("../models/User");
 const {
   uploadImageTocloudinary,
@@ -468,20 +470,20 @@ exports.getCourseDetails = async (req, res) => {
       .lean()
       .exec();
 
-      if(courseDetails?.status !== "Published") {
-        return res.status(400).json({
-          success: false,
-          message: "Course is not published yet",
-        });
-      }
+    if (courseDetails?.status !== "Published") {
+      return res.status(400).json({
+        success: false,
+        message: "Course is not published yet",
+      });
+    }
 
     courseDetails.courseContent?.forEach((section) => {
       section?.subSection?.forEach((lecture) => {
-        if(!lecture?.isPreviewable) {
+        if (!lecture?.isPreviewable) {
           lecture.video = undefined;
         }
-      })
-    })
+      });
+    });
 
     // validation
     if (!courseDetails) {
@@ -638,7 +640,7 @@ exports.deleteCourse = async (req, res) => {
 //get full course details
 exports.getFullCourseDetails = async (req, res) => {
   try {
-    const { courseId } = req.body;
+    const { courseId } = req.params;
     const userId = req.user.id;
 
     if (!courseId || !userId) {
@@ -679,13 +681,13 @@ exports.getFullCourseDetails = async (req, res) => {
       });
     }
 
-    let totalDurationInSeconds = 0;
-    courseDetails.courseContent.forEach((content) => {
-      content.subSection.forEach((subSection) => {
-        const timeDurationInSeconds = parseInt(subSection.timeDuration);
-        totalDurationInSeconds += timeDurationInSeconds;
-      });
-    });
+    // let totalDurationInSeconds = 0;
+    // courseDetails.courseContent.forEach((content) => {
+    //   content.subSection.forEach((subSection) => {
+    //     const timeDurationInSeconds = parseInt(subSection.timeDuration);
+    //     totalDurationInSeconds += timeDurationInSeconds;
+    //   });
+    // });
 
     // const totalDuration = convertSecondsToDuration(totalDurationInSeconds);
 
@@ -694,7 +696,7 @@ exports.getFullCourseDetails = async (req, res) => {
       data: {
         courseDetails,
         // totalDuration,
-        totalDurationInSeconds, // remove this and add above line
+        // totalDurationInSeconds, // remove this and add above line
         completedVideos: courseProgressCount?.completedVideos
           ? courseProgressCount?.completedVideos
           : [],
@@ -709,6 +711,7 @@ exports.getFullCourseDetails = async (req, res) => {
   }
 };
 
+// search course
 exports.searchCourse = async (req, res) => {
   try {
     const { searchParam } = req.body;
@@ -750,6 +753,7 @@ exports.searchCourse = async (req, res) => {
   }
 };
 
+// getTrending courses for home screen grouped by topics
 exports.getTrendingCourses = async (req, res) => {
   try {
     const categories = await Category.find({})
@@ -811,43 +815,264 @@ exports.getTrendingCourses = async (req, res) => {
   }
 };
 
+// top selling courses
+exports.getDevnestTrendingCourses = async (req, res) => {
+  try {
+    const trendingCourses = await Course.find({ status: "Published" })
+      .populate({
+        path: "instructor",
+        select: "firstName lastName email image",
+      })
+      .populate({
+        path: "category",
+        select: "name",
+      })
+      .populate("ratingAndReviews")
+      .sort({ studentsEnrolled: -1 }) // Sort by number of enrolled students (array length)
+      .limit(6)
+      .lean(); // Optional: better performance if no further mongoose manipulation is needed
+
+    return res.status(200).json({
+      success: true,
+      message: "Trending courses on Devnest fetched successfully",
+      data: trendingCourses,
+    });
+  } catch (error) {
+    console.error("Error in getDevnestTrendingCourses:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch trending courses",
+      error: error.message,
+    });
+  }
+};
+
+// stream video
 exports.streamSignedVideo = async (req, res) => {
   try {
     const { publicId } = req.params;
-
-    const videoUrl = cloudinary.url("Devnest/" + publicId, {
-      resource_type: "video",
-      secure: true,
-      sign_url: true, // Generates a signed URL
-    });
-
-    // Handle video streaming with range support
     const range = req.headers.range;
+
     if (!range) {
       return res.status(400).send("Requires Range header");
     }
 
-    const response = await got(videoUrl, { responseType: "buffer" }); // why I am getting 404 even after correct url?
-    // console.log("response : ", response)
-    const videoBuffer = response.rawBody;
+    // Create signed Cloudinary URL
+    const videoUrl = cloudinary.url("Devnest/" + publicId, {
+      resource_type: "video",
+      secure: true,
+      sign_url: true,
+    });
 
-    const videoSize = videoBuffer.length;
-    const CHUNK_SIZE = 10 ** 6;
-    const start = Number(range.replace(/\D/g, ""));
-    const end = Math.min(start + CHUNK_SIZE, videoSize - 1);
+    // Stream video directly from Cloudinary with Range header
+    const stream = got.stream(videoUrl, {
+      headers: {
+        Range: range,
+      },
+    });
 
-    const contentLength = end - start + 1;
-    const headers = {
-      "Content-Range": `bytes ${start}-${end}/${videoSize}`,
-      "Accept-Ranges": "bytes",
-      "Content-Length": contentLength,
-      "Content-Type": "video/mp4",
-    };
+    stream.on("response", (cloudRes) => {
+      // Pass Cloudinary headers to client
+      res.writeHead(cloudRes.statusCode, {
+        "Content-Range": cloudRes.headers["content-range"],
+        "Accept-Ranges": cloudRes.headers["accept-ranges"] || "bytes",
+        "Content-Length": cloudRes.headers["content-length"],
+        "Content-Type": "video/mp4",
+      });
+    });
 
-    res.writeHead(206, headers);
-    res.end(videoBuffer.slice(start, end + 1));
+    stream.on("error", (err) => {
+      console.error("Cloudinary stream error:", err.message);
+      res.status(500).send("Error streaming video");
+    });
+
+    stream.pipe(res);
   } catch (error) {
     console.error("Video stream error:", error.message);
     res.status(500).send("Server error");
+  }
+};
+
+// instructor dashboard
+exports.getInstructorDashboardData = async (req, res) => {
+  try {
+    const instructorId = req.user.id;
+
+    // 1. Fetch all courses by instructor
+    const courses = await Course.find({ instructor: instructorId })
+      .populate("studentsEnrolled")
+      .populate("ratingAndReviews");
+
+    // --------------------------
+    // 1. Summary Cards
+    // --------------------------
+    const totalCourses = courses?.length;
+    const totalStudents = courses?.reduce(
+      (acc, course) => acc + course.studentsEnrolled?.length,
+      0
+    );
+
+    const courseIds = courses.map((course) => course._id);
+
+    const totalReviews = await RatingAndReview.countDocuments({
+      course: { $in: courseIds },
+    });
+
+    const allRatings = await RatingAndReview.find({
+      course: { $in: courseIds },
+    }).select("rating");
+    const averageRating =
+      allRatings?.length > 0
+        ? (
+            allRatings.reduce((acc, obj) => acc + obj.rating, 0) /
+            allRatings?.length
+          ).toFixed(2)
+        : 0;
+
+    const totalRevenueData = await CourseSale.aggregate([
+      { $match: { instructor: instructorId } },
+      { $group: { _id: null, totalRevenue: { $sum: "$amount" } } },
+    ]);
+
+    const totalRevenue = totalRevenueData[0]?.totalRevenue || 0;
+
+    // --------------------------
+    // 2. Revenue Analytics (last 30 days)
+    // --------------------------
+    const revenueAnalytics = await CourseSale.aggregate([
+      {
+        $match: {
+          instructor: instructorId,
+          soldAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            day: { $dayOfMonth: "$soldAt" },
+            month: { $month: "$soldAt" },
+            year: { $year: "$soldAt" },
+          },
+          total: { $sum: "$amount" },
+        },
+      },
+      {
+        $sort: {
+          "_id.year": 1,
+          "_id.month": 1,
+          "_id.day": 1,
+        },
+      },
+    ]);
+
+    // --------------------------
+    // 3. Course-wise Engagement
+    // --------------------------
+    const courseEngagement = await Promise.all(
+      courses.map(async (course) => {
+        const revenue = await CourseSale.aggregate([
+          { $match: { course: course._id, instructor: instructorId } },
+          { $group: { _id: null, total: { $sum: "$amount" } } },
+        ]);
+
+        return {
+          courseId: course._id,
+          title: course.title,
+          enrollments: course.studentsEnrolled?.length,
+          reviews: course.ratingAndReviews?.length,
+          avgRating:
+            course.ratingAndReviews.reduce((acc, r) => acc + r.rating, 0) /
+            (course.ratingAndReviews?.length || 1),
+          revenue: revenue[0]?.total || 0,
+        };
+      })
+    );
+
+    // --------------------------
+    // 5. Reviews & Ratings
+    // --------------------------
+    const reviews = await RatingAndReview.find({ course: { $in: courseIds } })
+      .populate("user", "firstName lastName")
+      .populate("course", "title")
+      .sort({ _id: -1 })
+      .limit(10);
+
+    const starBreakdown = await RatingAndReview.aggregate([
+      { $match: { course: { $in: courseIds } } },
+      {
+        $group: {
+          _id: "$rating",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // --------------------------
+    // 6. Course Status Donut Chart
+    // --------------------------
+    const statusData = await Course.aggregate([
+      {
+        $match: { instructor: instructorId },
+      },
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // --------------------------
+    // 7. Sales & Orders Table
+    // --------------------------
+    const sales = await CourseSale.find({ instructor: instructorId })
+      .populate("student", "firstName lastName email")
+      .populate("course", "title")
+      .sort({ soldAt: -1 })
+      .limit(20);
+
+    // --------------------------
+    // 8. Drop-off / Feedback (CourseProgress %)
+    // --------------------------
+    const dropOffData = await CourseProgress.find({
+      courseId: { $in: courseIds },
+    })
+      .populate("userId", "firstName lastName")
+      .populate("courseId", "title");
+
+    const dropOffAnalysis = dropOffData.map((entry) => ({
+      course: entry.courseId.title,
+      student: `${entry.userId.firstName} ${entry.userId.lastName}`,
+      progressPercent: Math.round(
+        (entry.completedVideos?.length / entry.totalVideos?.length) * 100
+      ),
+    }));
+
+    // --------------------------
+    // Final Response
+    // --------------------------
+    return res.status(200).json({
+      success: true,
+      data: {
+        summary: {
+          totalCourses,
+          totalStudents,
+          totalReviews,
+          averageRating,
+          totalRevenue,
+        },
+        revenueAnalytics,
+        courseEngagement,
+        reviews,
+        starBreakdown,
+        courseStatus: statusData,
+        sales,
+        dropOff: dropOffAnalysis,
+      },
+      message: "fetched data successfully",
+    });
+  } catch (error) {
+    console.error("Dashboard Error:", error);
+    return res.status(500).json({ message: "Failed to fetch dashboard data" });
   }
 };
