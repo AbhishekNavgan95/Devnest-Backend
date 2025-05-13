@@ -10,10 +10,10 @@ const {
 const {
   createCodingRoom,
   deleteCodingRoom,
-  joinCodingRoom,
-  updateParticipantRole,
+  // updateParticipantRole,
   getAllCodingRooms,
   getRoomDetails,
+  joinCodingRoom,
 } = require("../controllers/CodeRoom");
 
 // create coding room
@@ -26,7 +26,7 @@ router.delete("/delete/:id", auth, isInstructor, deleteCodingRoom);
 router.post("/join/:id", auth, joinCodingRoom);
 
 // update participent role
-router.post("/updaterole", auth, isInstructor, updateParticipantRole);
+// router.post("/updaterole", auth, isInstructor, updateParticipantRole);
 
 // fetch all code space
 router.get("/get", auth, getAllCodingRooms);

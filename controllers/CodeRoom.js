@@ -86,72 +86,47 @@ exports.deleteCodingRoom = async (req, res) => {
 
 exports.joinCodingRoom = async (req, res) => {
   try {
+    const { id: roomId } = req.params;
     const { joiningToken } = req.body;
     const userId = req.user.id;
-    const roomId = req.params.id;
 
-    const room = await CodingRoom.findById(roomId);
-    if (!room)
+    // console.log("userid : ", userId);
+
+    const codingRoom = await CodingRoom.findById(roomId).populate(
+      "participants kickList chatMessages"
+    );
+
+    // console.log("coding room details : ", codingRoom);
+
+    if (!codingRoom) {
       return res
         .status(404)
-        .json({ success: false, message: "Room not found" });
+        .json({ message: "Coding Room not found", success: false });
+    }
 
-    // Check if private and validate invite link
     if (
-      room.visibility === "private" &&
-      room.inviteLink !== joiningToken &&
-      room?.instructor?.toString() !== userId
+      codingRoom.visibility === "private" &&
+      userId !== codingRoom.instructor.toString()
     ) {
+      if (!joiningToken || joiningToken !== codingRoom.inviteLink) {
+        return res
+          .status(403)
+          .json({ message: "Invalid joining token", success: false });
+      }
+    }
+
+    const isKicked = codingRoom.kickList?.some((u) => u?.toString() === userId);
+    if (isKicked) {
       return res
         .status(403)
-        .json({ success: false, message: "Invalid invite link" });
+        .json({ message: "You are kicked out of this room", success: false });
     }
 
-    if (room.kickList.includes(userId)) {
-      return res
-        .status(403)
-        .json({ success: false, message: "You are blocked from this room" });
-    }
-
-    // Check if user is already in room
-    const isParticipant = room.participants.some(
-      (p) => p.user.toString() === userId
-    );
-
-    // dont include instructor
-    if (!isParticipant && userId !== room?.instructor?._id.toString()) {
-      room.participants.push({ user: userId, role: "viewer" });
-      await room.save();
-    }
-
-    res.status(200).json({ success: true, data: room });
+    return res.status(200).json({ success: true, data: codingRoom });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Server error", error });
-  }
-};
-
-exports.updateParticipantRole = async (req, res) => {
-  try {
-    const { roomId, userId, role } = req.body;
-    const instructorId = req.user.id;
-
-    const room = await CodingRoom.findById(roomId);
-    if (!room || room.instructor.toString() !== instructorId) {
-      return res.status(403).json({ message: "Not authorized" });
-    }
-
-    const participant = room.participants.find(
-      (p) => p.user.toString() === userId
-    );
-    if (participant) {
-      participant.role = role;
-      await room.save();
-      return res.status(200).json({ success: true, message: "Role updated" });
-    }
-
-    res.status(404).json({ message: "Participant not found" });
-  } catch (error) {
-    res.status(500).json({ success: false, message: "Server error", error });
+    return res
+      .status(500)
+      .json({ message: "Internal Server Error", success: false });
   }
 };
 

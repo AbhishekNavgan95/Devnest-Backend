@@ -45,22 +45,16 @@ const listenToSocketEvents = (io) => {
     });
 
     // ********** codespace events **********
+    // join code space
     socket.on("joinCodingRoom", async ({ roomId, userId, inviteCode }) => {
       try {
-        console.log(" ->> joined coding room : ", userId);
+        console.log("✅✅ joining room : ", userId, " + room id : ", roomId);
 
         const codingRoom = await CodingRoom.findById(roomId)
           .populate("participants.user", "firstName lastName email image")
           .populate("chatMessages.sender", "firstName lastName email image");
 
         if (!codingRoom) return;
-
-        if (
-          codingRoom.visibility === "private" &&
-          codingRoom.inviteCode !== inviteCode
-        ) {
-          return;
-        }
 
         const isKicked = codingRoom.kickList?.some(
           (u) => u?.toString() === userId
@@ -103,7 +97,15 @@ const listenToSocketEvents = (io) => {
 
         updatedCodingRoom.inviteLink = undefined;
 
-        io.to(roomId).emit("participentsListUpdated", updatedCodingRoom);
+        // console.log(
+        //   "updatedCodingRoom.participants after joining ✅✅✅ : ",
+        //   updatedCodingRoom.participants
+        // );
+
+        io.to(roomId).emit(
+          "participentsListUpdated",
+          updatedCodingRoom.participants
+        );
       } catch (e) {
         console.log("error joining room : ", e);
       }
@@ -125,10 +127,23 @@ const listenToSocketEvents = (io) => {
         );
         await codingRoom.save();
 
+        const updatedCodingRoom = await CodingRoom.findById(roomId)
+          .populate("participants.user", "firstName lastName email image")
+          .populate("chatMessages.sender", "firstName lastName email image");
+
         socket.leave(roomId);
 
-        codingRoom.inviteLink = undefined;
-        io.to(roomId).emit("getUpdatedRoomDetails", codingRoom);
+        // console.log(
+        //   "updatedCodingRoom after user leave ❌❌ : ",
+        //   updatedCodingRoom.participants
+        // );
+
+        updatedCodingRoom.inviteLink = undefined;
+
+        io.to(roomId).emit(
+          "participentsListUpdated",
+          updatedCodingRoom.participants
+        );
       } catch (error) {
         console.error("Error leaving room:", error);
       }
@@ -197,15 +212,15 @@ const listenToSocketEvents = (io) => {
 
         if (!room || room.instructor.toString() !== instructorId) return;
 
-        room.participants = room.participants.filter(
-          (p) => p.user?._id?.toString() !== userId
-        );
-
-        room.kickList.push(userId);
-
+        room.kickList.push({ user: userId });
         await room.save();
+
+        const updateRoom = await CodingRoom.findById(roomId)
+          .populate("participants.user", "firstName lastName email image")
+          .populate("chatMessages.sender", "firstName lastName email image");
+
         room.inviteLink = undefined;
-        io.to(roomId).emit("getUpdatedRoomDetails", room);
+        io.to(roomId).emit("kickListUpdated", updateRoom.kickList);
       } catch (e) {
         console.log("error kicking out user : ", e);
       }
@@ -223,7 +238,7 @@ const listenToSocketEvents = (io) => {
         codeCache[roomId].dirty = true; // mark for saving
       }
 
-      socket.to(roomId).emit("codeUpdated", { userId, code });
+      socket.to(roomId).emit("codeUpdated", code);
     });
 
     // change Language
@@ -309,8 +324,7 @@ const listenToSocketEvents = (io) => {
           participant.role = status;
           await codingRoom.save();
 
-          codingRoom.inviteLink = undefined;
-          io.to(roomId).emit("getUpdatedRoomDetails", codingRoom);
+          io.to(roomId).emit("editStatusChanged", codingRoom?.participants);
         } catch (error) {
           console.error("Error toggling allow edit:", error);
         }
