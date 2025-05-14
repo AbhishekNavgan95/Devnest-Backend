@@ -13,6 +13,7 @@ const CourseProgress = require("../models/CourseProgress");
 const Topic = require("../models/Topic");
 const fs = require("fs");
 const got = require("got");
+const { default: mongoose } = require("mongoose");
 const cloudinary = require("cloudinary").v2;
 
 cloudinary.config({
@@ -930,7 +931,7 @@ exports.getInstructorDashboardData = async (req, res) => {
         : 0;
 
     const totalRevenueData = await CourseSale.aggregate([
-      { $match: { instructor: instructorId } },
+      { $match: { instructor: new mongoose.Types.ObjectId(instructorId) } },
       { $group: { _id: null, totalRevenue: { $sum: "$amount" } } },
     ]);
 
@@ -942,7 +943,7 @@ exports.getInstructorDashboardData = async (req, res) => {
     const revenueAnalytics = await CourseSale.aggregate([
       {
         $match: {
-          instructor: instructorId,
+          instructor: new mongoose.Types.ObjectId(instructorId),
           soldAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
         },
       },
@@ -971,7 +972,12 @@ exports.getInstructorDashboardData = async (req, res) => {
     const courseEngagement = await Promise.all(
       courses.map(async (course) => {
         const revenue = await CourseSale.aggregate([
-          { $match: { course: course._id, instructor: instructorId } },
+          {
+            $match: {
+              course: course._id,
+              instructor: new mongoose.Types.ObjectId(instructorId),
+            },
+          },
           { $group: { _id: null, total: { $sum: "$amount" } } },
         ]);
 
@@ -992,7 +998,7 @@ exports.getInstructorDashboardData = async (req, res) => {
     // 5. Reviews & Ratings
     // --------------------------
     const reviews = await RatingAndReview.find({ course: { $in: courseIds } })
-      .populate("user", "firstName lastName")
+      .populate("user", "firstName lastName image")
       .populate("course", "title")
       .sort({ _id: -1 })
       .limit(10);
@@ -1012,7 +1018,7 @@ exports.getInstructorDashboardData = async (req, res) => {
     // --------------------------
     const statusData = await Course.aggregate([
       {
-        $match: { instructor: instructorId },
+        $match: { instructor: new mongoose.Types.ObjectId(instructorId) },
       },
       {
         $group: {
@@ -1038,15 +1044,69 @@ exports.getInstructorDashboardData = async (req, res) => {
       courseId: { $in: courseIds },
     })
       .populate("userId", "firstName lastName")
-      .populate("courseId", "title");
+      .populate("courseId", "title courseContent.subSection");
 
-    const dropOffAnalysis = dropOffData.map((entry) => ({
-      course: entry.courseId.title,
-      student: `${entry.userId.firstName} ${entry.userId.lastName}`,
-      progressPercent: Math.round(
-        (entry.completedVideos?.length / entry.totalVideos?.length) * 100
-      ),
-    }));
+    const dropOffAnalysis = await Promise.all(
+      dropOffData.map(async (entry) => {
+        const course = await Course.findById(entry.courseId._id)
+          .populate({
+            path: "courseContent",
+            populate: {
+              path: "subSection",
+              select: "_id", // Only need ID for counting
+            },
+          })
+          .select("title _id courseContent");
+
+        const totalVideos = course.courseContent.reduce((acc, section) => {
+          return acc + (section.subSection?.length || 0);
+        }, 0);
+
+        const completedCount = entry.completedVideos?.length || 0;
+
+        return {
+          course: course.title,
+          courseId: course._id, // can u group the progresses of students by courseId to create a coraousel of course and student progresses?
+          student: `${entry.userId.firstName} ${entry.userId.lastName}`,
+          progressPercent:
+            totalVideos > 0
+              ? Math.round((completedCount / totalVideos) * 100)
+              : 0,
+        };
+      })
+    );
+
+    const uniqueProgresses = [];
+    const seen = new Set();
+
+    dropOffAnalysis.forEach((progress) => {
+      const uniqueKey = `${progress.courseId}_${progress.student}`;
+      if (!seen.has(uniqueKey)) {
+        seen.add(uniqueKey);
+        uniqueProgresses.push(progress);
+      }
+    });
+
+    // --------------------------
+    // Grouping by CourseId for Carousel UI
+    // --------------------------
+    const groupedDropOff = uniqueProgresses.reduce((acc, entry) => {
+      const { courseId, course, student, progressPercent } = entry;
+
+      if (!acc[courseId]) {
+        acc[courseId] = {
+          course,
+          courseId,
+          students: [],
+        };
+      }
+
+      acc[courseId].students.push({ student, progressPercent });
+      return acc;
+    }, {});
+
+    // Convert grouped object to array
+    const carouselData = Object.values(groupedDropOff);
 
     // --------------------------
     // Final Response
@@ -1063,6 +1123,7 @@ exports.getInstructorDashboardData = async (req, res) => {
         },
         revenueAnalytics,
         courseEngagement,
+        carouselData,
         reviews,
         starBreakdown,
         courseStatus: statusData,
