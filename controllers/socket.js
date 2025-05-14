@@ -238,7 +238,7 @@ const listenToSocketEvents = (io) => {
         codeCache[roomId].dirty = true; // mark for saving
       }
 
-      socket.to(roomId).emit("codeUpdated", code);
+      socket.to(roomId).emit("codeUpdated", {code, userId});
     });
 
     // change Language
