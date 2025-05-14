@@ -8,6 +8,7 @@ const {
   updateDisplayPicture,
   getEnrolledCourses,
   instructorDashboard,
+  // followUser,
 } = require("../controllers/Profile");
 
 // ********************************************************************************************************
@@ -18,8 +19,16 @@ router.delete("/deleteAccount", auth, deleteAccount);
 router.put("/updateProfile", auth, updateProfile);
 router.get("/getUserDetails", auth, getAllUserDetails);
 // Get Enrolled Courses
-router.get("/getEnrolledCourses", auth, getEnrolledCourses)
+router.get("/getEnrolledCourses", auth, getEnrolledCourses);
 router.put("/updateProfilePicture", auth, updateDisplayPicture);
-router.get("/getInstructorDashboardDetails", auth, isInstructor, instructorDashboard)
+router.get(
+  "/getInstructorDashboardDetails",
+  auth,
+  isInstructor,
+  instructorDashboard
+);
+
+// follow routes
+// router.post("/followUser/:userId", auth, followUser);
 
 module.exports = router;

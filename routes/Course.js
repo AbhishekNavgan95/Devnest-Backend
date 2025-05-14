@@ -16,6 +16,7 @@ const {
   getTrendingCourses,
   getInstructorDashboardData,
   getDevnestTrendingCourses,
+  getInstructorDetails,
 } = require("../controllers/Course");
 
 const {
@@ -114,6 +115,9 @@ router.post("/search", searchCourse);
 
 // get instructor dashboard data
 router.get('/InstructorDashboardData', auth, isInstructor, getInstructorDashboardData)
+
+// get Instructor details
+router.get('/instructorDetails/:instructorId', getInstructorDetails)
 
 router.post("/updateCourseProgress", auth, isStudent, updateCourseProgress);
 

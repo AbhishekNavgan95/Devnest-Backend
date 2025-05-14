@@ -719,17 +719,17 @@ exports.searchCourse = async (req, res) => {
 
     const courses = await Course.find({
       $or: [
-        { courseTitle: { $regex: searchParam, $options: "i" } },
+        { title: { $regex: searchParam, $options: "i" } },
         // {courseDescription : {$regex : searchParam , $options : "i"}}, // gives lots of unnecessory courses by matching words from description
         { tag: { $regex: searchParam, $options: "i" } },
       ],
     });
 
-    const topics = await Topic.find({
-      name: { $regex: searchParam, $options: "i" },
-    });
+    // const topics = await Topic.find({
+    //   name: { $regex: searchParam, $options: "i" },
+    // });
 
-    if (!courses || topics) {
+    if (!courses) {
       return res.status(404).json({
         success: false,
         message: "No results found",
@@ -740,10 +740,7 @@ exports.searchCourse = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Fetched Courses successfully",
-      data: {
-        courses,
-        topics,
-      },
+      courses,
     });
   } catch (e) {
     console.log("error : ", e);
@@ -1135,5 +1132,81 @@ exports.getInstructorDashboardData = async (req, res) => {
   } catch (error) {
     console.error("Dashboard Error:", error);
     return res.status(500).json({ message: "Failed to fetch dashboard data" });
+  }
+};
+
+// get instructor details
+exports.getInstructorDetails = async (req, res) => {
+  try {
+    const { instructorId } = req.params;
+
+    // Step 1: Fetch instructor with additional profile details
+    const instructor = await User.findById(instructorId)
+      .populate("additionalDetails")
+      .lean();
+
+    if (!instructor || instructor.accountType !== "Instructor") {
+      return res.status(404).json({
+        success: false,
+        message: "Instructor not found",
+      });
+    }
+
+    // Step 2: Fetch all published courses by the instructor
+    const courses = await Course.find({
+      instructor: instructorId,
+      status: "Published",
+    })
+      .populate("ratingAndReviews")
+      .lean();
+
+    // Step 3: Calculate avgRating for each course and instructor's overall avgRating
+    let totalRatingSum = 0;
+    let totalRatingCount = 0;
+
+    const courseRatings = courses.map((course) => {
+      const courseRatingSum = course.ratingAndReviews.reduce(
+        (acc, review) => acc + review.rating,
+        0
+      );
+
+      const courseAvgRating =
+        course.ratingAndReviews.length > 0
+          ? courseRatingSum / course.ratingAndReviews.length
+          : 0;
+
+      // Aggregate for instructor's overall rating
+      totalRatingSum += courseRatingSum;
+      totalRatingCount += course.ratingAndReviews.length;
+
+      return {
+        ...course,
+        avgRating: parseFloat(courseAvgRating.toFixed(1)),
+        totalRatings: course.ratingAndReviews.length,
+      };
+    });
+
+    // Step 4: Calculate overall instructor rating
+    const instructorAvgRating =
+      totalRatingCount > 0 ? totalRatingSum / totalRatingCount : 0;
+
+    instructor.avgRating = parseFloat(instructorAvgRating.toFixed(1));
+    instructor.password = undefined;
+
+    // Step 5: Return instructor and all courses
+    return res.status(200).json({
+      success: true,
+      data: {
+        instructor,
+        courses: courseRatings,
+      },
+    });
+  } catch (error) {
+    console.error("Error in getInstructorDetails:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch instructor details",
+      error: error.message,
+    });
   }
 };

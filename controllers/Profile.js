@@ -82,7 +82,7 @@ exports.updateProfile = async (req, res) => {
       data: updatedUser,
     });
   } catch (e) {
-    console.log("Update profile error : ", e)
+    console.log("Update profile error : ", e);
 
     return res.status(500).json({
       success: false,
@@ -200,7 +200,7 @@ exports.updateDisplayPicture = async (req, res) => {
     const id = req.user.id;
 
     // find user with that id
-    const user = await User.findById(id).populate('additionalDetails');
+    const user = await User.findById(id).populate("additionalDetails");
     const image = req.files?.image;
     const banner = req.files?.banner;
 
@@ -313,3 +313,72 @@ exports.instructorDashboard = async (req, res) => {
     });
   }
 };
+
+// gotta change some db structure, change followers and following to array
+// exports.followUser = async (req, res) => {
+//   try {
+//     const { id } = req.user;
+//     const { userId } = req.params;
+
+//     const user = await User.findById(userId);
+//     const currentUser = await User.findById(id);
+
+//     if (!user || !currentUser) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "User not found",
+//       });
+//     }
+
+//     const profile = await Profile.findById(user.additionalDetails?.toString());
+//     const currentUserProfile = await Profile.findById(
+//       currentUser.additionalDetails?.toString()
+//     );
+
+//     console.log("profile : ", user);
+//     console.log("current user: ", currentUserProfile);
+
+//     if (!profile || !currentUserProfile) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "User not found",
+//       });
+//     }
+
+//     if (profile?.followers?.includes(userId)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "You are already following this user",
+//       });
+//     }
+
+//     if (Array.isArray(currentUserProfile.following)) {
+//       currentUserProfile.following.push(userId);
+//     } else {
+//       currentUserProfile.following = [userId];
+//     }
+
+//     if (Array.isArray(profile.followers)) {
+//       profile.followers.push(id);
+//     } else {
+//       profile.followers = [id];
+//     }
+
+//     await currentUserProfile.save();
+//     await profile.save();
+
+//     console.log("current user profile : ", currentUserProfile);
+//     console.log("user profile : ", profile);
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "User followed successfully",
+//     });
+//   } catch (error) {
+//     console.log("error : ", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal server error",
+//     });
+//   }
+// };
