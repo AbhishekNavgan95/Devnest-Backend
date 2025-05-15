@@ -18,9 +18,9 @@ async function preparePlatformContext() {
       (c) =>
         `- [${c.title} (${c.category?.name})](${FRONTEND_BASE_URL}/course-details/${c._id})`
     )
-    .join("\n");
+    .join(", ");
 
-  const categoryLines = categories.map((cat) => `- ${cat.name}`).join("\n");
+  const categoryLines = categories.map((cat) => `- ${cat.name}`).join(", ");
 
   platformContextText = `
 You are Nestor, an AI assistant for the platform "Devnest".
